@@ -1,1 +1,538 @@
-# lovemy
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0, minimum-scale=1.0, shrink-to-fit=yes, viewport-fit=cover">
+  <title>Neon Flappy ✦ Glow Sky</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      background: #0a0a14;
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      font-family: 'Segoe UI', 'Poppins', system-ui, sans-serif;
+      touch-action: manipulation;
+      overflow: hidden;
+      margin: 0;
+      padding: 10px;
+    }
+    .game-container {
+      position: relative;
+      border-radius: 32px;
+      overflow: hidden;
+      box-shadow: 0 20px 50px rgba(0, 255, 255, 0.3), 0 0 0 2px rgba(0, 255, 255, 0.2);
+      background: #000;
+    }
+    canvas {
+      display: block;
+      width: 100%;
+      height: auto;
+      background: radial-gradient(circle at 20% 20%, #14142b, #050510);
+    }
+    .ui-overlay {
+      position: absolute;
+      top: 20px;
+      left: 0;
+      width: 100%;
+      display: flex;
+      justify-content: center;
+      pointer-events: none;
+      z-index: 10;
+    }
+    .score-neon {
+      font-size: clamp(2.5rem, 8vw, 4rem);
+      font-weight: 800;
+      color: #fff;
+      text-shadow: 0 0 15px cyan, 0 0 40px magenta, 0 0 70px blue;
+      letter-spacing: 4px;
+      background: rgba(0,0,0,0.5);
+      backdrop-filter: blur(8px);
+      padding: 0.2rem 1.8rem;
+      border-radius: 60px;
+      border: 1px solid rgba(255,255,255,0.2);
+    }
+    .tap-message {
+      position: absolute;
+      bottom: 25%;
+      left: 50%;
+      transform: translateX(-50%);
+      color: rgba(255,255,255,0.9);
+      font-size: 1.3rem;
+      font-weight: 600;
+      text-shadow: 0 0 10px black;
+      background: rgba(0,0,0,0.6);
+      backdrop-filter: blur(10px);
+      padding: 0.6rem 1.8rem;
+      border-radius: 40px;
+      letter-spacing: 2px;
+      border: 1px solid cyan;
+      white-space: nowrap;
+      pointer-events: none;
+      z-index: 5;
+    }
+    @media (max-width: 500px) {
+      .tap-message {
+        bottom: 20%;
+        font-size: 1rem;
+      }
+    }
+  </style>
+</head>
+<body>
+<div style="position: relative; width: min(100%, 450px);">
+  <div class="game-container">
+    <canvas id="gameCanvas" width="360" height="640"></canvas>
+    <div class="ui-overlay">
+      <div class="score-neon" id="scoreDisplay">0</div>
+    </div>
+    <div class="tap-message" id="tapMessage">NHẤN / CHẠM ✦ BAY</div>
+  </div>
+</div>
+
+<script>
+  (function() {
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+
+    // Kích thước cố định để mượt mà
+    const W = 360;
+    const H = 640;
+    canvas.width = W;
+    canvas.height = H;
+
+    // --- BIẾN TRÒ CHƠI ---
+    let gameState = 'waiting'; // waiting, playing, over
+    let score = 0;
+
+    // Chim
+    const bird = {
+      x: 80,
+      y: H / 2,
+      width: 32,
+      height: 26,
+      velocity: 0,
+      gravity: 0.7,
+      jumpPower: -7.2,
+      rotation: 0
+    };
+
+    // Ống (cột neon)
+    let pipes = [];
+    const PIPE_WIDTH = 52;
+    const PIPE_GAP = 150;
+    const PIPE_SPEED = 2.5;
+    let frameCounter = 0;
+    const PIPE_SPAWN_FRAME = 75; // khoảng cách sinh ống
+
+    // Hiệu ứng hạt (particle system)
+    let particles = [];
+
+    // Nền sao
+    let stars = [];
+    for (let i = 0; i < 80; i++) {
+      stars.push({
+        x: Math.random() * W,
+        y: Math.random() * H,
+        radius: Math.random() * 2.2 + 0.6,
+        alpha: Math.random() * 0.7 + 0.3,
+        speed: Math.random() * 0.3 + 0.05
+      });
+    }
+
+    // --- XỬ LÝ ĐIỀU KHIỂN ---
+    function handleInput(e) {
+      e.preventDefault();
+      if (gameState === 'waiting') {
+        gameState = 'playing';
+        document.getElementById('tapMessage').style.display = 'none';
+        resetGame();
+        bird.velocity = bird.jumpPower * 0.8; // nhảy nhẹ ban đầu
+      } else if (gameState === 'playing') {
+        bird.velocity = bird.jumpPower;
+        // Thêm particle khi nhảy
+        for (let i = 0; i < 6; i++) {
+          particles.push(createParticle(bird.x, bird.y + 8, 'cyan'));
+        }
+      } else if (gameState === 'over') {
+        // Restart
+        resetGame();
+        gameState = 'playing';
+        document.getElementById('tapMessage').style.display = 'none';
+        bird.velocity = bird.jumpPower * 0.9;
+      }
+    }
+
+    window.addEventListener('click', (e) => {
+      // Tránh click vào overlay ảnh hưởng
+      handleInput(e);
+    });
+    window.addEventListener('touchstart', (e) => {
+      handleInput(e);
+    }, {passive: false});
+
+    window.addEventListener('keydown', (e) => {
+      if (e.code === 'Space' || e.code === 'ArrowUp') {
+        e.preventDefault();
+        handleInput(e);
+      }
+    });
+
+    function resetGame() {
+      bird.y = H / 2;
+      bird.velocity = 0;
+      bird.rotation = 0;
+      pipes = [];
+      particles = [];
+      score = 0;
+      frameCounter = 0;
+      updateScoreDisplay();
+    }
+
+    function createParticle(x, y, color) {
+      return {
+        x: x,
+        y: y,
+        vx: (Math.random() - 0.5) * 2.5,
+        vy: (Math.random() - 1.8) * 2.2 - 0.8,
+        life: 1.0,
+        maxLife: 0.6 + Math.random() * 0.7,
+        size: Math.random() * 5 + 2.5,
+        color: color
+      };
+    }
+
+    function updateScoreDisplay() {
+      document.getElementById('scoreDisplay').innerText = score;
+    }
+
+    // --- VA CHẠM ---
+    function checkCollision(pipe) {
+      const birdRect = {
+        x: bird.x - bird.width/2,
+        y: bird.y - bird.height/2,
+        w: bird.width,
+        h: bird.height
+      };
+
+      // Ống trên
+      const topPipe = {
+        x: pipe.x,
+        y: 0,
+        w: PIPE_WIDTH,
+        h: pipe.topHeight
+      };
+      // Ống dưới
+      const bottomPipe = {
+        x: pipe.x,
+        y: pipe.topHeight + PIPE_GAP,
+        w: PIPE_WIDTH,
+        h: H - (pipe.topHeight + PIPE_GAP)
+      };
+
+      if (rectCollide(birdRect, topPipe) || rectCollide(birdRect, bottomPipe)) {
+        return true;
+      }
+      return false;
+    }
+
+    function rectCollide(r1, r2) {
+      return r1.x < r2.x + r2.w &&
+             r1.x + r1.w > r2.x &&
+             r1.y < r2.y + r2.h &&
+             r1.y + r1.h > r2.y;
+    }
+
+    function gameOver() {
+      gameState = 'over';
+      document.getElementById('tapMessage').style.display = 'block';
+      document.getElementById('tapMessage').innerText = 'CHẠM ĐỂ CHƠI LẠI ✦ ' + score;
+      // Nổ particle
+      for (let i = 0; i < 30; i++) {
+        particles.push(createParticle(bird.x, bird.y, Math.random() < 0.5 ? 'magenta' : 'cyan'));
+      }
+    }
+
+    // --- CẬP NHẬT ---
+    function update() {
+      // Cập nhật sao nền chậm
+      stars.forEach(s => {
+        s.y += s.speed;
+        if (s.y > H + 5) {
+          s.y = -5;
+          s.x = Math.random() * W;
+        }
+      });
+
+      // Cập nhật particle
+      for (let i = particles.length-1; i >= 0; i--) {
+        let p = particles[i];
+        p.x += p.vx;
+        p.y += p.vy;
+        p.vy += 0.08;
+        p.life -= 0.015;
+        if (p.life <= 0 || p.y > H + 20 || p.x < -20 || p.x > W + 20) {
+          particles.splice(i,1);
+        }
+      }
+
+      if (gameState !== 'playing') return;
+
+      // Vật lý chim
+      bird.velocity += bird.gravity;
+      bird.y += bird.velocity;
+
+      // Giới hạn rotation theo vận tốc
+      bird.rotation = Math.min(Math.max(bird.velocity * 0.08, -0.5), 0.9);
+
+      // Kiểm tra biên trên dưới
+      if (bird.y - bird.height/2 < 0) {
+        bird.y = bird.height/2;
+        bird.velocity = 0;
+      }
+      if (bird.y + bird.height/2 > H) {
+        bird.y = H - bird.height/2;
+        gameOver();
+        return;
+      }
+
+      // Di chuyển ống & sinh ống
+      frameCounter++;
+      if (frameCounter % PIPE_SPAWN_FRAME === 0) {
+        let minTop = 50;
+        let maxTop = H - PIPE_GAP - 50;
+        let topHeight = Math.floor(Math.random() * (maxTop - minTop + 1)) + minTop;
+        pipes.push({
+          x: W,
+          topHeight: topHeight,
+          scored: false
+        });
+      }
+
+      for (let i = pipes.length-1; i >= 0; i--) {
+        let pipe = pipes[i];
+        pipe.x -= PIPE_SPEED;
+
+        // Kiểm tra va chạm
+        if (checkCollision(pipe)) {
+          gameOver();
+          return;
+        }
+
+        // Tính điểm khi vượt qua ống
+        if (!pipe.scored && pipe.x + PIPE_WIDTH < bird.x) {
+          pipe.scored = true;
+          score++;
+          updateScoreDisplay();
+          // Hiệu ứng particle ăn điểm
+          for (let j=0; j<12; j++) {
+            particles.push(createParticle(bird.x, bird.y, 'gold'));
+          }
+        }
+
+        // Xóa ống ngoài màn hình
+        if (pipe.x + PIPE_WIDTH < -20) {
+          pipes.splice(i,1);
+        }
+      }
+    }
+
+    // --- VẼ (NEON STYLE) ---
+    function draw() {
+      ctx.clearRect(0, 0, W, H);
+
+      // Vẽ nền gradient
+      const bgGrad = ctx.createLinearGradient(0, 0, 0, H);
+      bgGrad.addColorStop(0, '#0b0b1a');
+      bgGrad.addColorStop(0.7, '#1a1030');
+      ctx.fillStyle = bgGrad;
+      ctx.fillRect(0, 0, W, H);
+
+      // Vẽ sao lấp lánh
+      stars.forEach(s => {
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, s.radius, 0, Math.PI*2);
+        ctx.fillStyle = `rgba(255, 255, 255, ${s.alpha})`;
+        ctx.fill();
+        // thêm ánh neon nhỏ
+        ctx.shadowColor = 'cyan';
+        ctx.shadowBlur = 3;
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.shadowColor = 'transparent';
+      });
+
+      // Vẽ ống neon
+      pipes.forEach(pipe => {
+        // Ống trên
+        drawNeonPipe(pipe.x, 0, PIPE_WIDTH, pipe.topHeight, 'top');
+        // Ống dưới
+        drawNeonPipe(pipe.x, pipe.topHeight + PIPE_GAP, PIPE_WIDTH, H - (pipe.topHeight + PIPE_GAP), 'bottom');
+      });
+
+      // Vẽ chim neon
+      drawBird();
+
+      // Vẽ particles
+      particles.forEach(p => {
+        ctx.save();
+        ctx.globalAlpha = p.life * 0.9;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size * p.life, 0, 2*Math.PI);
+        let gradient = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.size * p.life);
+        if (p.color === 'cyan') {
+          gradient.addColorStop(0, '#00ffff');
+          gradient.addColorStop(0.6, '#0088ff');
+        } else if (p.color === 'magenta') {
+          gradient.addColorStop(0, '#ff00ff');
+          gradient.addColorStop(0.6, '#aa00ff');
+        } else if (p.color === 'gold') {
+          gradient.addColorStop(0, '#ffdd00');
+          gradient.addColorStop(0.6, '#ff8800');
+        } else {
+          gradient.addColorStop(0, '#ffffff');
+          gradient.addColorStop(0.6, '#cccccc');
+        }
+        ctx.fillStyle = gradient;
+        ctx.shadowColor = p.color;
+        ctx.shadowBlur = 8;
+        ctx.fill();
+        ctx.restore();
+      });
+
+      // Vẽ thông báo nếu waiting hoặc over
+      if (gameState === 'waiting') {
+        ctx.fillStyle = 'rgba(0,0,0,0.5)';
+        ctx.fillRect(0,0,W,H);
+        ctx.font = 'bold 26px "Segoe UI", "Poppins"';
+        ctx.fillStyle = '#fff';
+        ctx.shadowColor = 'cyan';
+        ctx.shadowBlur = 20;
+        ctx.textAlign = 'center';
+        ctx.fillText('NEON FLAPPY', W/2, H/2-30);
+        ctx.font = '16px "Segoe UI"';
+        ctx.fillText('Chạm / Space để bay', W/2, H/2+50);
+        ctx.shadowBlur = 0;
+        ctx.shadowColor = 'transparent';
+      } else if (gameState === 'over') {
+        ctx.fillStyle = 'rgba(10,0,20,0.7)';
+        ctx.fillRect(0,0,W,H);
+        ctx.font = 'bold 36px "Segoe UI"';
+        ctx.fillStyle = '#ff66aa';
+        ctx.shadowColor = 'magenta';
+        ctx.shadowBlur = 25;
+        ctx.fillText('GAME OVER', W/2, H/2-20);
+        ctx.shadowBlur = 0;
+      }
+    }
+
+    function drawNeonPipe(x, y, width, height, type) {
+      if (height <= 0) return;
+      ctx.save();
+      // Hiệu ứng neon viền
+      ctx.shadowColor = '#00ffff';
+      ctx.shadowBlur = 12;
+      // Thân ống gradient
+      let gradient = ctx.createLinearGradient(x, y, x + width, y);
+      gradient.addColorStop(0, '#0a0f2a');
+      gradient.addColorStop(0.5, '#1a2b5e');
+      gradient.addColorStop(1, '#0a0f2a');
+      ctx.fillStyle = gradient;
+      ctx.fillRect(x, y, width, height);
+
+      // Viền sáng neon
+      ctx.shadowBlur = 18;
+      ctx.strokeStyle = '#00e5ff';
+      ctx.lineWidth = 3;
+      ctx.strokeRect(x + 1.5, y, width - 3, height);
+
+      // Thêm đường viền trong magenta
+      ctx.shadowColor = '#ff00ff';
+      ctx.shadowBlur = 8;
+      ctx.strokeStyle = '#ff44ff';
+      ctx.lineWidth = 1.8;
+      ctx.strokeRect(x + 4, y + 2, width - 8, height - 4);
+
+      // Mép ống (nắp) sáng hơn
+      if (type === 'top') {
+        ctx.fillStyle = '#00ffff';
+        ctx.shadowBlur = 14;
+        ctx.fillRect(x - 4, y + height - 18, width + 8, 16);
+        ctx.fillStyle = '#ff00ff';
+        ctx.fillRect(x - 2, y + height - 12, width + 4, 8);
+      } else if (type === 'bottom') {
+        ctx.fillStyle = '#00ffff';
+        ctx.shadowBlur = 14;
+        ctx.fillRect(x - 4, y, width + 8, 16);
+        ctx.fillStyle = '#ff00ff';
+        ctx.fillRect(x - 2, y + 4, width + 4, 8);
+      }
+      ctx.restore();
+    }
+
+    function drawBird() {
+      ctx.save();
+      ctx.translate(bird.x, bird.y);
+      ctx.rotate(bird.rotation);
+
+      // Thân chim neon
+      ctx.shadowColor = '#0ff';
+      ctx.shadowBlur = 22;
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.ellipse(0, 0, bird.width/2, bird.height/2, 0, 0, Math.PI*2);
+      ctx.fill();
+      ctx.fillStyle = '#00ffff';
+      ctx.shadowBlur = 18;
+      ctx.fill();
+
+      // Mắt
+      ctx.shadowBlur = 8;
+      ctx.fillStyle = '#000';
+      ctx.beginPath();
+      ctx.arc(8, -4, 5, 0, 2*Math.PI);
+      ctx.fill();
+      ctx.fillStyle = 'white';
+      ctx.arc(10, -6, 2, 0, 2*Math.PI);
+      ctx.fill();
+
+      // Mỏ
+      ctx.fillStyle = '#ff44ff';
+      ctx.shadowColor = '#f0f';
+      ctx.shadowBlur = 12;
+      ctx.beginPath();
+      ctx.moveTo(16, -2);
+      ctx.lineTo(24, 1);
+      ctx.lineTo(16, 5);
+      ctx.fill();
+
+      // Cánh nhỏ
+      ctx.fillStyle = '#aaeeff';
+      ctx.shadowColor = 'cyan';
+      ctx.beginPath();
+      ctx.ellipse(-6, 2, 7, 4, 0.3, 0, Math.PI*2);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // Vòng lặp game
+    function gameLoop() {
+      update();
+      draw();
+      requestAnimationFrame(gameLoop);
+    }
+
+    // Bắt đầu
+    gameLoop();
+    // Ẩn message lúc đầu hiển thị waiting
+    document.getElementById('tapMessage').style.display = 'block';
+    document.getElementById('tapMessage').innerText = 'NHẤN / CHẠM ✦ BAY';
+  })();
+</script>
+</body>
+  </html>
